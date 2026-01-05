@@ -5,10 +5,16 @@ import { useSearchParams } from "next/navigation";
 
 export default function CompleteInner() {
   const params = useSearchParams();
-  const threeDSecureId = params.get("threeDSecureId");
+  const threeDSecureId = params.get("threeDSecureId") || params.get("id");
   const resourcePath = params.get("resourcePath");
+  const queryOrderNumber = params.get("orderNumber") || params.get("orderId") || "";
+  const storedOrderKey = threeDSecureId
+    ? `bevgo:orderNumber:${threeDSecureId}`
+    : null;
 
-  const [orderNumber, setOrderNumber] = useState(null);
+  const [orderNumber, setOrderNumber] = useState(
+    queryOrderNumber ? queryOrderNumber : null
+  );
   const [message] = useState(
     "3D Secure completed. You can return to the app to finish your payment."
   );
@@ -17,23 +23,51 @@ export default function CompleteInner() {
   const LIVE_CLIENT_PORTAL = "https://client-portal.bevgo.co.za/";
 
   useEffect(() => {
-    if (!threeDSecureId || !resourcePath) return;
+    if (!storedOrderKey || queryOrderNumber) {
+      return;
+    }
+    const storedOrderNumber = sessionStorage.getItem(storedOrderKey);
+    if (storedOrderNumber && storedOrderNumber !== orderNumber) {
+      setOrderNumber(storedOrderNumber);
+    }
+  }, [storedOrderKey, queryOrderNumber, orderNumber]);
+
+  useEffect(() => {
+    if (!threeDSecureId) return;
 
     (async () => {
       try {
         const res = await fetch(
-          `/api/v1/payments/peach/3ds/status?id=${encodeURIComponent(
-            threeDSecureId
-          )}&resourcePath=${encodeURIComponent(resourcePath)}`
+          "https://bevgo-client.vercel.app/api/v1/payments/peach/3ds/status",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              threeDSecureId,
+            }),
+          }
         );
 
         const json = await res.json();
-        if (json.ok && json.orderNumber) {
-          setOrderNumber(json.orderNumber);
+        const nextOrderNumber =
+          json.orderNumber || json.order_number || json.orderId;
+        if (json.ok && nextOrderNumber) {
+          setOrderNumber(nextOrderNumber);
+          if (storedOrderKey) {
+            sessionStorage.setItem(storedOrderKey, nextOrderNumber);
+          }
         }
       } catch {}
     })();
-  }, [threeDSecureId, resourcePath]);
+  }, [threeDSecureId, resourcePath, storedOrderKey]);
+
+  useEffect(() => {
+    if (queryOrderNumber && queryOrderNumber !== orderNumber) {
+      setOrderNumber(queryOrderNumber);
+    }
+  }, [queryOrderNumber, orderNumber]);
 
   const handleReturn = () => {
     const params = new URLSearchParams(window.location.search);
@@ -44,14 +78,18 @@ export default function CompleteInner() {
     // 👇 use fetched orderNumber if we have it
     const finalOrderNumber =
       orderNumber || params.get("orderNumber") || "";
+
+    const returnParams = new URLSearchParams();
+    if (threeDSecureId) {
+      returnParams.set("threeDSecureId", threeDSecureId);
+    }
+    if (finalOrderNumber) {
+      returnParams.set("orderNumber", finalOrderNumber);
+    }
+
+    const deeplink = `bevgoclientportal://bevgoclientportal.com/processingPayment?${returnParams.toString()}`;
   
-    const deeplink = `bevgoclientportal://bevgoclientportal.com/processingPayment?threeDSecureId=${encodeURIComponent(
-      threeDSecureId || ""
-    )}&orderNumber=${encodeURIComponent(finalOrderNumber || "")}`;
-  
-    const fallbackUrl = `${TEST_CLIENT_PORTAL}processingPayment?threeDSecureId=${encodeURIComponent(
-      threeDSecureId || ""
-    )}&orderNumber=${encodeURIComponent(finalOrderNumber || "")}`;
+    const fallbackUrl = `${TEST_CLIENT_PORTAL}processingPayment?${returnParams.toString()}`;
   
     window.location.href = deeplink;
   

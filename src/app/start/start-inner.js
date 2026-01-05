@@ -6,6 +6,10 @@ import { useSearchParams } from "next/navigation";
 export default function StartInner() {
   const params = useSearchParams();
   const threeDSecureId = params.get("threeDSecureId");
+  const orderNumber = params.get("orderNumber") || params.get("orderId");
+  const storedOrderKey = threeDSecureId
+    ? `bevgo:orderNumber:${threeDSecureId}`
+    : null;
 
   const [message, setMessage] = useState("Preparing 3D Secure...");
 
@@ -31,10 +35,24 @@ export default function StartInner() {
         }
 
         const { redirect, frictionless } = json;
+        const responseOrderNumber = json.orderNumber || json.orderId;
+
+        if (storedOrderKey && responseOrderNumber) {
+          sessionStorage.setItem(storedOrderKey, responseOrderNumber);
+        }
 
         // Frictionless = no challenge, go straight to complete
         if (frictionless || !redirect) {
-          window.location.href = `/complete?threeDSecureId=${threeDSecureId}`;
+          const returnParams = new URLSearchParams();
+          if (threeDSecureId) {
+            returnParams.set("threeDSecureId", threeDSecureId);
+          }
+          const finalOrderNumber = responseOrderNumber || orderNumber;
+          if (finalOrderNumber) {
+            returnParams.set("orderNumber", finalOrderNumber);
+          }
+
+          window.location.href = `/complete?${returnParams.toString()}`;
           return;
         }
 
